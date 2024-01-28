@@ -131,7 +131,7 @@ def main():
         for video_file in video_files:
             chunk_filenames = extract_audio(video_file)
             futures = [executor.submit(transcribe_audio, client, chunk_filename) for chunk_filename in chunk_filenames]
-            transcripts = [future.result() for future in concurrent.futures.wait(futures)]
+            transcripts = [future.result() for future in futures]
 
             combine_transcripts(transcripts, video_file.replace('.mp4', '.mp3'))
             transcribe_progress.update(1)

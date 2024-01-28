@@ -5,7 +5,6 @@ import time
 from pathlib import Path
 
 import openai
-import requests
 
 from moviepy.editor import VideoFileClip
 from tqdm import tqdm
@@ -92,7 +91,7 @@ def combine_transcripts(transcripts, original_filename):
 
 def transcribe_audio(client, audio_filename):
     max_retries = 5
-    retry_delay = 10  # Initial delay in seconds
+    retry_delay = 20  # Initial delay in seconds
 
     for attempt in range(max_retries):
         try:
@@ -102,13 +101,10 @@ def transcribe_audio(client, audio_filename):
             )
             return response.text
 
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:  # Rate limit error
-                print(f"Rate limit exceeded. Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
-            else:
-                raise e  # Re-raise the exception if it's not a rate limit error
+        except openai.RateLimitError as e:
+            print(f"Rate limit exceeded. Retrying in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+            retry_delay *= 2  # Exponential backoff
 
         except Exception as e:
             raise e  # Re-raise for any other exceptions

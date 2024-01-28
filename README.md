@@ -5,6 +5,7 @@ This tool is designed to automate the process of transcribing audio from video f
 ## Prerequisites
 
 - Python 3.6 or higher.
+- [FFmpeg](https://ffmpeg.org/)
 - [OpenAI API key](https://platform.openai.com/docs/quickstart/account-setup) 
 
 ## Setup

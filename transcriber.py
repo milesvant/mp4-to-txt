@@ -124,25 +124,18 @@ def main():
         return
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        audio_progress = tqdm(total=len(video_files), desc="Audio Extraction", unit="file")
-        transcribe_progress = tqdm(desc="Transcription", unit="chunk")
+        transcribe_progress = tqdm(desc="Transcription", unit="files")
 
         client = openai.OpenAI()
 
         for video_file in video_files:
-            # Extract audio and split into chunks
             chunk_filenames = extract_audio(video_file)
-            audio_progress.update(1)
-
-            # Transcribe each chunk
             futures = [executor.submit(transcribe_audio, client, chunk_filename) for chunk_filename in chunk_filenames]
-            transcripts = [future.result() for future in concurrent.futures.as_completed(futures)]
-            transcribe_progress.update(len(chunk_filenames))
+            transcripts = [future.result() for future in concurrent.futures.wait(futures)]
 
-            # Combine transcripts
             combine_transcripts(transcripts, video_file.replace('.mp4', '.mp3'))
+            transcribe_progress.update(1)
 
-        audio_progress.close()
         transcribe_progress.close()
 
 

@@ -1,9 +1,13 @@
-from pathlib import Path
-import openai
-from moviepy.editor import VideoFileClip
-import concurrent.futures
 import os
+import concurrent.futures
+
+from pathlib import Path
+
+import openai
+
+from moviepy.editor import VideoFileClip
 from tqdm import tqdm
+from pydub import AudioSegment
 
 
 AUDIO_PATH = Path('./audio')
@@ -11,6 +15,8 @@ VIDEO_PATH = Path('./videos')
 TRANSCRIPTS_PATH = Path('./transcripts')
 
 WHISPER_COST_PER_SECOND = 0.0001
+
+CHUNK_LENGTH_MS = 5 * 60 * 1000  # 5 minutes.
 
 
 def get_untranscribed_video_files():
@@ -54,7 +60,17 @@ def extract_audio(video_file):
     video = VideoFileClip(str(VIDEO_PATH / video_file))
     audio_filename = video_file.replace('.mp4', '.mp3')
     video.audio.write_audiofile(str(AUDIO_PATH / audio_filename), logger=None)  # Disable logging
-    return audio_filename
+    audio = AudioSegment.from_mp3(str(AUDIO_PATH / audio_filename))
+
+    # Splitting the audio
+    chunks = [audio[i:i + CHUNK_LENGTH_MS] for i in range(0, len(audio), CHUNK_LENGTH_MS)]
+    chunk_filenames = []
+    for idx, chunk in enumerate(chunks):
+        chunk_filename = f"{audio_filename.replace('.mp3', '')}_{idx}.mp3"
+        chunk.export(AUDIO_PATH / chunk_filename, format="mp3")
+        chunk_filenames.append(chunk_filename)
+
+    return chunk_filenames
 
 
 def transcribe_audio(client, audio_filename):
@@ -62,11 +78,14 @@ def transcribe_audio(client, audio_filename):
         file=open(AUDIO_PATH / audio_filename, "rb"),
         model="whisper-1"
     )
-    transcript = response.text
+    return response.text
 
-    filename = Path(audio_filename).name.replace('.mp3', '.txt')
+
+def combine_transcripts(transcripts, original_filename):
+    combined_transcript = "\n".join(transcripts)
+    filename = Path(original_filename).name.replace('.mp3', '.txt')
     with open(TRANSCRIPTS_PATH / filename, 'w') as f:
-        f.write(transcript)
+        f.write(combined_transcript)
 
 
 def main():
@@ -82,23 +101,26 @@ def main():
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         audio_progress = tqdm(total=len(video_files), desc="Audio Extraction", unit="file")
-        transcribe_progress = tqdm(total=len(video_files), desc="Transcription", unit="file")
+        transcribe_progress = tqdm(desc="Transcription", unit="chunk")
 
-        # Extract audio
-        future_audio = [executor.submit(extract_audio, video_file) for video_file in video_files]
-        for future in concurrent.futures.as_completed(future_audio):
-            future.result()  # Wait for each audio extraction to complete
+        client = openai.OpenAI()
+
+        for video_file in video_files:
+            # Extract audio and split into chunks
+            chunk_filenames = extract_audio(video_file)
             audio_progress.update(1)
 
-        # Transcribe audio
-        client = openai.OpenAI()
-        future_transcribe = [executor.submit(transcribe_audio, client, audio_filename.replace('.mp4', '.mp3')) for audio_filename in video_files]
-        for future in concurrent.futures.as_completed(future_transcribe):
-            future.result()  # Wait for each transcription to complete
-            transcribe_progress.update(1)
+            # Transcribe each chunk
+            futures = [executor.submit(transcribe_audio, client, chunk_filename) for chunk_filename in chunk_filenames]
+            transcripts = [future.result() for future in concurrent.futures.as_completed(futures)]
+            transcribe_progress.update(len(chunk_filenames))
+
+            # Combine transcripts
+            combine_transcripts(transcripts, video_file.replace('.mp4', '.mp3'))
 
         audio_progress.close()
         transcribe_progress.close()
+
 
 if __name__ == '__main__':
     main()
